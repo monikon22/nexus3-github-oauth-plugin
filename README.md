@@ -1,8 +1,9 @@
-[![Build Status](https://travis-ci.org/larscheid-schmitzhermes/nexus3-github-oauth-plugin.svg?branch=master)](https://travis-ci.org/larscheid-schmitzhermes/nexus3-github-oauth-plugin)
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/7de60ad600b743e0b2744ee86691e458)](https://www.codacy.com/app/jan_7/nexus3-github-oauth-plugin?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=larscheid-schmitzhermes/nexus3-github-oauth-plugin&amp;utm_campaign=Badge_Grade)
-![Total Downloads Badge](https://img.shields.io/github/downloads/larscheid-schmitzhermes/nexus3-github-oauth-plugin/total.svg)
+[![Release](https://github.com/monikon22/nexus3-github-oauth-plugin/actions/workflows/release.yml/badge.svg)](https://github.com/monikon22/nexus3-github-oauth-plugin/actions/workflows/release.yml)
+![Total Downloads Badge](https://img.shields.io/github/downloads/monikon22/nexus3-github-oauth-plugin/total.svg)
 # Nexus3 Github OAuth Plugin
-This plugin adds a Github realm to Sonatype Nexus OSS and enables you to authenticate with Github Users and authorize with Github Orgs and Teams.
+This plugin adds a Github realm to Sonatype Nexus Repository and enables you to authenticate with Github Users and authorize with Github Orgs and Teams.
+
+This fork targets **Nexus Repository 3.98.x** (Spring Boot runtime). See [README_PORT.md](README_PORT.md) for what changed compared to the original Karaf-based plugin.
 
 The plugin does not implement a full OAuth flow, instead you use your github user name + an OAuth token you generated in your account to log in to the nexus.
 This works through the web as well as through tools like maven, gradle etc.
@@ -50,23 +51,31 @@ Example Maven settings.xml fragment:
 
 #### 0. Prerequisites
 
-##### Directory naming convention:
-For the following commands we assume your nexus installation resides in `/opt/sonatype/nexus`. See [https://books.sonatype.com/nexus-book/reference3/install.html#directories](https://books.sonatype.com/nexus-book/reference3/install.html#directories) for reference.
+* Nexus Repository 3.98.x, installed in `/opt/nexus` (adjust `--nexus-home` below if yours differs)
+* `bash`, `python3` and root access on the Nexus host
+
+Nexus 3.98 starts through the Spring Boot `JarLauncher` and no longer scans the `deploy/` directory, so the old `.kar` drop-in install does not work. The plugin is embedded into the Nexus boot jar by an installer script instead.
 
 #### 1. Download and install
 
-Download the latest release from github and place it in the `nexus/deploy` folder, e.g., like so:
+Download the plugin jar, `install-nexus-plugin.sh` and `SHA256SUMS` from the [latest release](https://github.com/monikon22/nexus3-github-oauth-plugin/releases/latest), then:
 
 ```shell
-wget -O /opt/sonatype/nexus/deploy/nexus3-github-oauth-plugin.kar https://github.com/larscheid-schmitzhermes/nexus3-github-oauth-plugin/releases/download/3.0.0/nexus3-github-oauth-plugin.kar
+sha256sum -c SHA256SUMS
+chmod +x install-nexus-plugin.sh
+sudo ./install-nexus-plugin.sh \
+  --plugin nexus3-github-oauth-plugin-<version>.jar \
+  --nexus-home /opt/nexus
 ```
 
+The script backs up the Nexus boot jar before patching it. Rollback and details are in [README_PORT.md](README_PORT.md#deploy).
+
 #### 2. Create configuration
-Create `/opt/sonatype/nexus/etc/githuboauth.properties`
+Create `$NEXUS_HOME/etc/githuboauth.properties` (or `/opt/sonatype-work/nexus3/etc/githuboauth.properties`).
 
 Within the file you can configure the following properties:
 
-|Property        |Description                              |[Default](https://github.com/larscheid-schmitzhermes/nexus3-github-oauth-plugin/blob/master/src/main/java/com/larscheidschmitzhermes/nexus3/github/oauth/plugin/configuration/GithubOauthConfiguration.java)|
+|Property        |Description                              |[Default](src/main/java/org/sonatype/nexus/plugins/githuboauth/GithubOauthConfiguration.java)|
 |---             |---                                      |---    |
 |`github.api.url`|URL of the Github API to operate against.|`https://api.github.com`|
 |`github.principal.cache.ttl`|[Java Duration](https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-) for how long a given Access will be cached for. This is a tradeoff of how quickly access can be revoked and how quickly a Github user's rate limit will be reached for the Github User API. _Note:_ Github Enterprise does not have a rate limit!|`PT1M` (1 Minute)|
@@ -77,20 +86,25 @@ Within the file you can configure the following properties:
 
 This is what an example file would look like:
 ```properties
-github.api.url=https://github.example.com/api/v3 #note: no trailing slash!!!
+# note: no trailing slash!!!
+github.api.url=https://github.example.com/api/v3
 github.principal.cache.ttl=PT1M
 ```
 
 #### 3. Restart Nexus
-Restart your Nexus instance to let it pick up your changes.
+Restart your Nexus instance to let it pick up your changes, then activate the realm as described in [Setup](#setup).
 
 ## Development
-You can build the project with the integrated maven wrapper like so: `./mvnw clean package`
+Requires JDK 21+ and Maven 3.9.6+. Build with the integrated maven wrapper:
 
-You can also build locally using Docker by running `docker run --rm -it -v $(pwd):/data -w /data maven:3.5.2 mvn clean package`
+```shell
+./mvnw -Denforcer.skip=true clean package
+```
 
-You can build a ready to run docker image using the [`Dockerfile`](Dockerfile) to quickly spin up a nexus with the plugin already preinstalled.
+The shaded plugin jar ends up in `target/`. Releases are built by the [release workflow](.github/workflows/release.yml) when a `v*` tag is pushed (or when it is started manually).
 
 ## Credits
 
 The whole project is heavily influenced by the [nexus3-crowd-plugin](https://github.com/pingunaut/nexus3-crowd-plugin).
+
+Originally written by [larscheid-schmitzhermes](https://github.com/larscheid-schmitzhermes/nexus3-github-oauth-plugin); this fork continues through [L21s](https://github.com/L21s/nexus3-github-oauth-plugin) and [cheese-work](https://github.com/cheese-work/nexus3-github-oauth-plugin).
