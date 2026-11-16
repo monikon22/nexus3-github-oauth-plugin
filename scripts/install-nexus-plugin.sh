@@ -17,10 +17,10 @@ set -euo pipefail
 usage() {
   cat >&2 <<'USAGE'
 Usage:
-  install-nexus-3.93-plugin.sh --plugin <plugin-jar> [--nexus-home /opt/nexus] [--service nexus] [--restart]
+  install-nexus-plugin.sh --plugin <plugin-jar> [--nexus-home /opt/nexus] [--service nexus] [--restart]
 
 Options:
-  --plugin       Path to target/nexus3-github-oauth-plugin-3.93.2-01.jar
+  --plugin       Path to target/nexus3-github-oauth-plugin-3.98.0-07.jar
   --nexus-home   Nexus install directory (default: /opt/nexus)
   --service      systemd service name to restart/status (default: nexus)
   --restart      Restart the service after patching the boot jar
@@ -157,7 +157,8 @@ try:
                     continue
                 data = zin.read(info.filename)
                 zout.writestr(info, data)
-            zout.write(plugin, entry)
+            # Spring Boot requires nested jars in BOOT-INF/lib to be STORED (uncompressed).
+            zout.write(plugin, entry, compress_type=zipfile.ZIP_STORED)
             zout.writestr(idx_name, new_idx)
     shutil.move(tmp_path, boot_jar)
 except Exception:

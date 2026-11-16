@@ -1,6 +1,6 @@
-# Port to Nexus Repository 3.93.2+ (Spring runtime)
+# Port to Nexus Repository 3.98.0+ (Spring runtime)
 
-This branch ports the plugin to **Sonatype Nexus Repository 3.93.2** (and the
+This branch ports the plugin to **Sonatype Nexus Repository 3.98.0** (and the
 3.71+ line in general).
 
 ## Why a port was needed
@@ -9,17 +9,17 @@ Nexus 3.71 replaced the **Karaf/OSGi** runtime with a **Spring Boot** runtime.
 
 - The old `org.sonatype.nexus:nexus-plugin-api` / `nexus-security` /
   `nexus-capability` artifacts are no longer published to Maven Central at
-  3.93.2-01 (they moved to the new monorepo group
+  3.98.0-07 (they moved to the new monorepo group
   `org.sonatype.nexus.common.components`).
 - The Karaf `.kar` packaging / OSGi bundle loader / `nexus-plugins` 3.43
   parent no longer apply.
 
 ## What changed
 
-| Area | Before (3.43 / Karaf) | After (3.93.2 / Spring) |
+| Area | Before (3.43 / Karaf) | After (3.98.0 / Spring) |
 | --- | --- | --- |
 | Packaging | `.kar` (Karaf archive) | plain shaded `jar` |
-| Parent POM | `org.sonatype.nexus.plugins:nexus-plugins:3.43.0-01` | `org.sonatype.nexus.common.components:nexus-common-components-parent:3.93.2-01` |
+| Parent POM | `org.sonatype.nexus.plugins:nexus-plugins:3.43.0-01` | `org.sonatype.nexus.common.components:nexus-common-components-parent:3.98.0-07` |
 | DI annotations | `javax.inject.Named`, `com.google.inject.Singleton` | `@Component`, `@Qualifier` (Spring) |
 | `@Description` | `org.eclipse.sisu.Description` | `org.sonatype.nexus.common.Description` |
 | Discovery | Karaf feature XML + OSGi bundle | bridge `@Configuration` under `org.sonatype.nexus.*` + boot-jar embed (see below) |
@@ -28,11 +28,17 @@ The GitHub authz logic (`GithubApiClient`, org/team/role mapping, principal
 caching) is **unchanged** — only the DI wiring, build packaging, and deploy
 mechanism changed.
 
-## How plugin loading actually works in 3.93.2 (verified from source)
+## Shiro 2.x (since Nexus 3.98.0)
+
+The 3.98.0-07 parent manages `shiro-core` only with the `jakarta` classifier
+(Shiro 2.2.1), so the `shiro-core` dependency in `pom.xml` declares
+`<classifier>jakarta</classifier>`. The plugin code compiles unchanged.
+
+## How plugin loading actually works in 3.98.0 (verified from source)
 
 This was investigated against the `sonatype/nexus-public` tag
-`release-3.93.2-01`. The earlier "drop jar in `/opt/nexus/deploy/` and Spring
-will scan it" claim is **incorrect** for 3.93.2. Two facts drive the real
+`release-3.98.0-07`. The earlier "drop jar in `/opt/nexus/deploy/` and Spring
+will scan it" claim is **incorrect** for 3.98.0. Two facts drive the real
 mechanism:
 
 1. **Classpath does not include `/deploy/`.** `bin/nexus`'s `setupClassPath()`
@@ -49,45 +55,41 @@ mechanism:
    system variable. So even if a plugin jar is on the classpath, classes in
    `com.larscheidschmitzhermes.*` will never be component-scanned.
 
-The live Nexus 3.93.2 launcher, however, is **not** `PropertiesLauncher`.
+The live Nexus 3.98.0 launcher, however, is **not** `PropertiesLauncher`.
 Its manifest uses `org.springframework.boot.loader.launch.JarLauncher`, and
 the generated `/opt/nexus/bin/nexus` script runs it with `java -jar`.
 `JarLauncher` ignores `loader.path`, and `java -jar` ignores ordinary external
 `-classpath` additions. The reliable deployment path is therefore to embed the
 plugin jar into the executable Nexus boot jar as `BOOT-INF/lib/<plugin>.jar`
-and append it to `BOOT-INF/classpath.idx`. Combined with a small bridge
-`@Configuration` placed under the scanned `org.sonatype.nexus.*` namespace,
-this makes the realm visible to Spring component scanning.
+and append it to `BOOT-INF/classpath.idx`. Because all plugin classes live
+under the scanned `org.sonatype.nexus.plugins.githuboauth` package, no bridge
+configuration is needed: Spring component scanning picks them up directly.
 
-### The bridge config
+### Realm registration
 
-`src/main/java/org/sonatype/nexus/plugins/githuboauth/GithubOauthPluginConfiguration.java`
-lives in the scanned namespace and re-exports the plugin package:
-
-```java
-@Configuration
-@ComponentScan(basePackages = "com.larscheidschmitzhermes.nexus3.github.oauth.plugin")
-public class GithubOauthPluginConfiguration { }
-```
-
-This mirrors what `SpringComponentScan`'s own javadoc describes: *"Each of the
-modules may potentially do `@ComponentScan` of their own module for injection
-if custom scanning is required."* Once the bridge bean is registered, the
-realm/component beans it imports are picked up by `RealmManagerImpl` (which is
-injected with `List<Realm>` and keys them via
-`QualifierUtil.buildQualifierBeanMap`), so the realm appears on
+`GithubOauthAuthenticatingRealm` is a `@Component` with a `@Qualifier`. Nexus's
+`RealmManagerImpl` is injected with `List<Realm>` and keys it via
+`QualifierUtil.buildQualifierBeanMap`, so the realm appears on
 **Administration → Security → Realms** with no extra wiring.
+
+The `@Qualifier` value (`GithubOauthAuthenticatingRealm.NAME`) is the realm id
+stored in the Nexus realm configuration. It is intentionally kept equal to the
+FQCN used before the package flattening
+(`com.larscheidschmitzhermes.nexus3.github.oauth.plugin.GithubOauthAuthenticatingRealm`),
+so already-configured realm lists keep resolving.
+`GithubOauthRealmRegistrationTest` checks discovery with the same scanner
+settings Nexus uses.
 
 ## Build
 
-Requires **JDK 21+** (the 3.93.2 runtime JVM) and **Maven 3.9.6+**. The full
+Requires **JDK 21+** (the 3.98.0 runtime JVM) and **Maven 3.9.6+**. The full
 Nexus reactor requires JDK 25, but this standalone plugin module only targets
 `--release 21`, so the parent's reactor-wide `RequireJavaVersion [25,)` rule
-is skipped. (Only JDK 21 is needed at runtime; Nexus 3.93.2 ships Temurin 21.)
+is skipped. (Only JDK 21 is needed at runtime; Nexus 3.98.0 ships Temurin 21.)
 
 ```bash
 ./mvnw -Denforcer.skip=true clean package
-# artifact: target/nexus3-github-oauth-plugin-3.93.2-01.jar  (shaded, self-contained)
+# artifact: target/nexus3-github-oauth-plugin-3.98.0-07.jar  (shaded, self-contained)
 ```
 
 `-Denforcer.skip=true` bypasses the Nexus parent's reactor-wide
@@ -99,11 +101,11 @@ do not apply to a standalone plugin module targeting `--release 21`.
 
 ## Deploy
 
-Nexus 3.93.2 is launched by `JarLauncher`:
+Nexus 3.98.0 is launched by `JarLauncher`:
 
 ```text
 Main-Class: org.springframework.boot.loader.launch.JarLauncher
-java ... -jar /opt/nexus/bin/sonatype-nexus-repository-3.93.2-01.jar
+java ... -jar /opt/nexus/bin/sonatype-nexus-repository-3.98.0-07.jar
 ```
 
 That means the old Karaf `/deploy` scanner is gone, `loader.path` is ignored,
@@ -118,8 +120,8 @@ validated consistently:
 ./mvnw -Denforcer.skip=true -DskipTests clean package
 
 # Run on the Nexus host, or copy both the jar and script there first.
-sudo ./scripts/install-nexus-3.93-plugin.sh \
-  --plugin target/nexus3-github-oauth-plugin-3.93.2-01.jar \
+sudo ./scripts/install-nexus-plugin.sh \
+  --plugin target/nexus3-github-oauth-plugin-3.98.0-07.jar \
   --nexus-home /opt/nexus
 
 # Restart during an approved maintenance window.
@@ -131,7 +133,7 @@ The installer performs these steps:
 1. Finds `/opt/nexus/bin/sonatype-nexus-repository-*.jar`.
 2. Writes a timestamped backup next to the boot jar.
 3. Removes any older embedded `nexus3-github-oauth-plugin-*.jar`.
-4. Adds the new plugin jar as `BOOT-INF/lib/nexus3-github-oauth-plugin-3.93.2-01.jar`.
+4. Adds the new plugin jar as `BOOT-INF/lib/nexus3-github-oauth-plugin-3.98.0-07.jar`.
 5. Appends that nested jar to `BOOT-INF/classpath.idx`.
 6. Validates the patched boot jar contains both the nested jar and classpath
    index entry.
@@ -139,8 +141,8 @@ The installer performs these steps:
 For one-shot installs you can let the script restart Nexus after patching:
 
 ```bash
-sudo ./scripts/install-nexus-3.93-plugin.sh \
-  --plugin target/nexus3-github-oauth-plugin-3.93.2-01.jar \
+sudo ./scripts/install-nexus-plugin.sh \
+  --plugin target/nexus3-github-oauth-plugin-3.98.0-07.jar \
   --nexus-home /opt/nexus \
   --restart
 ```
@@ -149,8 +151,8 @@ Rollback is just replacing the patched boot jar with the timestamped backup and
 restarting Nexus:
 
 ```bash
-sudo cp /opt/nexus/bin/sonatype-nexus-repository-3.93.2-01.jar.backup.<timestamp> \
-  /opt/nexus/bin/sonatype-nexus-repository-3.93.2-01.jar
+sudo cp /opt/nexus/bin/sonatype-nexus-repository-3.98.0-07.jar.backup.<timestamp> \
+  /opt/nexus/bin/sonatype-nexus-repository-3.98.0-07.jar
 sudo systemctl restart nexus
 ```
 
@@ -182,10 +184,10 @@ If the realm does **not** appear, the two most likely causes (in order):
 1. The jar is not actually on the boot classpath — check `ps -ef | grep nexus`
    for the `-Dloader.path=...` flag (Option A) or the jar in the `-classpath`
    value (Option B).
-2. The bridge class was not scanned — the boot classloader did not pick up the
+2. The realm class was not scanned — the boot classloader did not pick up the
    `org/sonatype/nexus/plugins/githuboauth/` entries. Confirm with:
    ```bash
-   unzip -l /opt/nexus/lib/ext/nexus3-github-oauth-plugin-3.93.2-01.jar | grep githuboauth/GithubOauthPluginConfiguration
+   unzip -l /opt/nexus/bin/sonatype-nexus-repository-3.98.0-07.jar | grep githuboauth
    ```
 
 ## Configure
