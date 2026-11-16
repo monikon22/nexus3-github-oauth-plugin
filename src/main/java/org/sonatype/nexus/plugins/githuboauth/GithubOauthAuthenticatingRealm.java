@@ -33,7 +33,13 @@ import java.util.stream.Collectors;
 public class GithubOauthAuthenticatingRealm extends AuthorizingRealm {
     private static final Logger LOGGER = LoggerFactory.getLogger(GithubOauthAuthenticatingRealm.class);
 
-    public static final String NAME = "GithubOauthAuthenticatingRealm";
+    /**
+     * Realm id as stored in the Nexus realm configuration. Kept equal to the FQCN used before the
+     * package flattening, so already-configured realm lists keep resolving. Must be a literal
+     * constant because it is used as a {@code @Qualifier} value.
+     */
+    public static final String NAME =
+            "com.larscheidschmitzhermes.nexus3.github.oauth.plugin.GithubOauthAuthenticatingRealm";
 
     private final GithubApiClient githubClient;
 
@@ -55,7 +61,13 @@ public class GithubOauthAuthenticatingRealm extends AuthorizingRealm {
 
     @Override
     protected AuthorizationInfo doGetAuthorizationInfo(final PrincipalCollection principals) {
-        GithubPrincipal user = (GithubPrincipal) principals.getPrimaryPrincipal();
+        // Nexus 3.98 also asks every realm about plain user ids (String principals) when resolving
+        // users and roles; only principals produced by this realm carry a GithubPrincipal.
+        GithubPrincipal user = principals.oneByType(GithubPrincipal.class);
+        if (user == null) {
+            LOGGER.debug("No GithubPrincipal among principals {}, skipping authorization", principals);
+            return null;
+        }
         LOGGER.info("doGetAuthorizationInfo for user {} with roles {}",
                 user.getUsername(),
                 user.getRoles().stream().collect(Collectors.joining(", ")));

@@ -19,6 +19,7 @@ import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.MockedStatic;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -143,14 +144,17 @@ public class GithubApiClientTest {
 
     @Test
     public void shouldWarnIfTooManyTeams() throws Exception {
-        mockStatic(LoggerFactory.class);
         Logger logger = mock(Logger.class);
-        when(LoggerFactory.getLogger(any(Class.class))).thenReturn(logger);
+        GithubPrincipal authorizedPrincipal;
+        // static mock is thread-local and must be closed, otherwise it leaks into other tests
+        try (MockedStatic<LoggerFactory> loggerFactory = mockStatic(LoggerFactory.class)) {
+            loggerFactory.when(() -> LoggerFactory.getLogger(any(Class.class))).thenReturn(logger);
 
-        HttpClient mockClient = fullyFunctionalMockClient2ManyTeams();
+            HttpClient mockClient = fullyFunctionalMockClient2ManyTeams();
 
-        GithubApiClient clientToTest = new GithubApiClient(mockClient, config);
-        GithubPrincipal authorizedPrincipal = clientToTest.authz("demo-user", "DUMMY".toCharArray());
+            GithubApiClient clientToTest = new GithubApiClient(mockClient, config);
+            authorizedPrincipal = clientToTest.authz("demo-user", "DUMMY".toCharArray());
+        }
 
         verify(logger).warn("Fetching only the first 100 teams for user '{}'","demo-user");
 
