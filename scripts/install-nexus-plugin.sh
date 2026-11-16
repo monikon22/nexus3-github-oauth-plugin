@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install nexus3-github-oauth-plugin into a Nexus Repository 3.93.x Spring Boot
+# Install nexus3-github-oauth-plugin into a Nexus Repository 3.98.x Spring Boot
 # executable jar.
 #
-# Nexus 3.93 runs via Spring Boot JarLauncher. The legacy Karaf /deploy scanner
+# Nexus 3.98 runs via Spring Boot JarLauncher. The legacy Karaf /deploy scanner
 # is gone and JarLauncher ignores loader.path. A plugin jar must be embedded as
 # BOOT-INF/lib/<plugin>.jar and listed in BOOT-INF/classpath.idx, then Nexus must
 # be restarted.
@@ -10,7 +10,7 @@
 # This script is intentionally conservative: it writes a timestamped backup,
 # patches a temporary copy, validates the resulting jar, then atomically moves it
 # into place. It uses Python's zipfile module instead of external zip/unzip so it
-# works on the minimal vps-langfuse install.
+# works on the minimal hosts.
 
 set -euo pipefail
 
@@ -183,7 +183,7 @@ if command -v chown >/dev/null 2>&1; then
   chown --reference="$backup" "$boot_jar" 2>/dev/null || true
 fi
 
-# The old Karaf artifact is ignored by 3.93 but confusing; remove if present.
+# The old Karaf artifact is ignored by 3.98 but confusing; remove if present.
 rm -f "$nexus_home/deploy"/nexus3-github-oauth-plugin*.kar 2>/dev/null || true
 
 echo "Installed $plugin_name into $(basename "$boot_jar")"
